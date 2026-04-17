@@ -1,0 +1,7 @@
+fastapi[all]>=0.100.0
+uvicorn>=0.23.0
+sqlalchemy>=2.0.0
+asyncpg>=0.28.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+minio>=7.2.12
