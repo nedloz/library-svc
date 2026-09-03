@@ -1,2 +1,22 @@
+# Environments
 .env
-__pycache__
+.venv
+env/
+venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary conversion directories
+preview-*/
+
+# Logs
+*.log
