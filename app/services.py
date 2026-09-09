@@ -33,6 +33,12 @@ _FILENAME_FIELDS = ("filename", "file_name", "original_filename", "name")
 _DESCRIPTION_FIELDS = ("description", "summary", "annotation")
 _SIZE_FIELDS = ("size_bytes", "file_size", "size", "content_length")
 
+# Лимиты предпросмотра Office-документов. Конвертация выполняется внешним LibreOffice и
+# может занимать секунды или не завершиться вовсе, поэтому нужен и таймаут, и потолок по
+# размеру исходника: файл целиком читается в память перед конвертацией.
+PREVIEW_CONVERT_TIMEOUT_SEC = int(os.getenv("PREVIEW_CONVERT_TIMEOUT_SEC", "120"))
+PREVIEW_MAX_SOURCE_BYTES = int(os.getenv("PREVIEW_MAX_SOURCE_BYTES", str(50 * 1024 * 1024)))
+
 OFFICE_EXTENSIONS = {".doc", ".docx", ".rtf", ".odt"}
 TEXT_EXTENSIONS = {".txt", ".md", ".html", ".csv", ".json", ".xml", ".log"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
@@ -271,7 +277,26 @@ def download_minio_object(bucket_name: str, object_key: str) -> bytes:
 
 
 
+class PreviewTimeout(RuntimeError):
+    """Конвертация не уложилась в отведённое время."""
+
+
+class PreviewTooLarge(RuntimeError):
+    """Исходный файл слишком велик для конвертации в памяти."""
+
+
 def convert_office_bytes_to_pdf(file_bytes: bytes, source_filename: Optional[str]) -> tuple[bytes, str]:
+    """Синхронная конвертация через LibreOffice.
+
+    ВАЖНО: функция блокирующая и вызывать её напрямую из async-обработчика нельзя — именно
+    так и было раньше, из-за чего один предпросмотр .docx замораживал весь сервис. Вызов
+    должен идти через пул потоков (см. app/main.py::preview_document).
+    """
+    if len(file_bytes) > PREVIEW_MAX_SOURCE_BYTES:
+        raise PreviewTooLarge(
+            f"Размер файла {len(file_bytes)} байт превышает лимит {PREVIEW_MAX_SOURCE_BYTES}"
+        )
+
     soffice_bin = shutil.which("libreoffice") or shutil.which("soffice")
     if not soffice_bin:
         raise RuntimeError("LibreOffice не установлен в контейнере")
@@ -285,23 +310,31 @@ def convert_office_bytes_to_pdf(file_bytes: bytes, source_filename: Optional[str
         output_dir = Path(tmpdir) / "out"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        process = subprocess.run(
-            [
-                soffice_bin,
-                "--headless",
-                "--nologo",
-                "--nolockcheck",
-                "--nodefault",
-                "--norestore",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                str(output_dir),
-                str(input_path),
-            ],
-            capture_output=True,
-            text=True,
-        )
+        command = [
+            soffice_bin,
+            "--headless",
+            "--nologo",
+            "--nolockcheck",
+            "--nodefault",
+            "--norestore",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(input_path),
+        ]
+        try:
+            # Таймаут обязателен: без него зависший LibreOffice держал бы поток бесконечно.
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=PREVIEW_CONVERT_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise PreviewTimeout(
+                f"LibreOffice не уложился в {PREVIEW_CONVERT_TIMEOUT_SEC} с"
+            ) from exc
 
         if process.returncode != 0:
             stderr = (process.stderr or "").strip()
