@@ -1,10 +1,13 @@
+import asyncio
 import logging
 import mimetypes
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List
 from uuid import UUID
 from urllib.parse import quote
 
+import anyio.to_thread
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -13,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import engine, AsyncSessionLocal, check_db_connection, get_db
 from app.schemas import DocumentDetailSchema, TopicSchema
 from app.services import (
+    PreviewTimeout,
+    PreviewTooLarge,
     build_document_detail,
     build_library_tree,
     detect_preview_mode,
@@ -31,6 +36,13 @@ logging.basicConfig(
 logger = logging.getLogger("library_service")
 
 library_tree_cache = []
+
+# Конвертация Office → PDF запускается внешним LibreOffice и требует заметной памяти и CPU.
+# Без ограничения параллелизма несколько одновременных предпросмотров просто съедят машину,
+# поэтому одновременно выполняется не больше PREVIEW_MAX_CONCURRENCY конвертаций, а остальные
+# ждут своей очереди.
+PREVIEW_MAX_CONCURRENCY = int(os.getenv("PREVIEW_MAX_CONCURRENCY", "2"))
+_preview_semaphore = asyncio.Semaphore(PREVIEW_MAX_CONCURRENCY)
 
 
 @asynccontextmanager
@@ -156,9 +168,23 @@ async def preview_document(document_id: UUID, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=500, detail="Для документа не настроено хранилище в MinIO")
 
     if is_office_document(content_type, filename):
+        # И скачивание, и конвертация — блокирующие операции. Раньше они вызывались прямо
+        # здесь, в async-обработчике, и на время конвертации event loop вставал: сервис
+        # переставал отвечать вообще всем. Теперь обе уходят в пул потоков.
         try:
-            source_bytes = download_minio_object(bucket_name, object_key)
-            pdf_bytes, pdf_filename = convert_office_bytes_to_pdf(source_bytes, filename)
+            async with _preview_semaphore:
+                source_bytes = await anyio.to_thread.run_sync(
+                    download_minio_object, bucket_name, object_key
+                )
+                pdf_bytes, pdf_filename = await anyio.to_thread.run_sync(
+                    convert_office_bytes_to_pdf, source_bytes, filename
+                )
+        except PreviewTooLarge as exc:
+            logger.warning("Файл слишком велик для предпросмотра: %s", exc)
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except PreviewTimeout as exc:
+            logger.error("Конвертация в PDF не уложилась в таймаут: %s", exc)
+            raise HTTPException(status_code=504, detail=str(exc)) from exc
         except RuntimeError as exc:
             logger.exception("Не удалось конвертировать документ в PDF")
             raise HTTPException(status_code=500, detail=str(exc)) from exc

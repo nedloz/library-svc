@@ -17,13 +17,13 @@
 
 ## 2. Обзор Эндпоинтов
 
-| Метод | Путь | Описание | Формат ответа |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/library/tree` | Получение иерархического дерева тем и документов (из кэша) | `application/json` |
-| `POST` | `/library/refresh` | Принудительное обновление кэша дерева библиотеки из БД | `application/json` |
-| `GET` | `/documents/{id}` | Полные метаданные документа и связанные материалы | `application/json` |
-| `GET` | `/documents/{id}/preview` | Потоковый предпросмотр файла (inline) с авто-конвертацией в PDF | `application/pdf`, медиа, текст |
-| `GET` | `/documents/{id}/download`| Скачивание оригинального файла документа (attachment) | `application/octet-stream` |
+| Метод | Путь                     | Описание                                                                                            | Формат ответа                   |
+| :--------- | :--------------------------- | :---------------------------------------------------------------------------------------------------------- | :------------------------------------------ |
+| `GET`    | `/library/tree`            | Получение иерархического дерева тем и документов (из кэша) | `application/json`                        |
+| `POST`   | `/library/refresh`         | Принудительное обновление кэша дерева библиотеки из БД      | `application/json`                        |
+| `GET`    | `/documents/{id}`          | Полные метаданные документа и связанные материалы               | `application/json`                        |
+| `GET`    | `/documents/{id}/preview`  | Потоковый предпросмотр файла (inline) с авто-конвертацией в PDF | `application/pdf`, медиа, текст |
+| `GET`    | `/documents/{id}/download` | Скачивание оригинального файла документа (attachment)                  | `application/octet-stream`                |
 
 > 💡 **Примечание**: Для эндпоинтов документов поддерживаются как пути `/documents/...`, так и префиксы `/api/documents/...`.
 
@@ -42,6 +42,7 @@
   - `503 Service Unavailable` — Кэш еще не прогрет или БД недоступна.
 
 #### Пример ответа (`List[TopicSchema]`):
+
 ```json
 [
   {
@@ -89,6 +90,7 @@
 - **Коды ответов**: `200 OK`
 
 #### Пример ответа:
+
 ```json
 {
   "status": "success",
@@ -108,6 +110,7 @@
   - `document_id` (`UUID`, обязательный) — Идентификатор документа.
 
 #### Пример ответа (`DocumentDetailSchema`):
+
 ```json
 {
   "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
@@ -131,6 +134,7 @@
 ```
 
 #### Возможные значения `preview_mode`:
+
 - `"pdf"` — Документ отображается через встроенный просмотрщик PDF браузера (исходные PDF или сконвертированные Word/RTF/ODT).
 - `"image"` — Изображение (`image/png`, `image/jpeg` и др.).
 - `"text"` — Текстовый файл (`text/plain`, Markdown, HTML, CSV).
@@ -144,7 +148,9 @@
 Стримит контент файла для отображения прямо в браузере (заголовок `Content-Disposition: inline`).
 
 #### ⚡ Особенность: On-the-fly конвертация Office в PDF:
+
 Если документ является файлом Microsoft Office / OpenOffice (`.doc`, `.docx`, `.rtf`, `.odt`), сервис:
+
 1. Загружает файл из MinIO.
 2. В изолированном временном каталоге запускает LibreOffice в headless-режиме (`soffice --headless --convert-to pdf`).
 3. Возвращает готовый PDF-поток с заголовком `Content-Type: application/pdf`.
@@ -173,6 +179,7 @@
 ## 4. Примеры интеграции в коде
 
 ### 4.1 JavaScript / Frontend (Получение дерева библиотеки)
+
 ```javascript
 async function loadLibrary() {
   const response = await fetch('http://localhost:8000/library/tree');
@@ -186,6 +193,7 @@ async function loadLibrary() {
 ```
 
 ### 4.2 Python (`httpx` асинхронный — Скачивание документа)
+
 ```python
 import httpx
 import asyncio
@@ -205,6 +213,7 @@ if __name__ == "__main__":
 ```
 
 ### 4.3 cURL
+
 ```bash
 # Получить дерево тем
 curl -X GET "http://localhost:8000/library/tree"
