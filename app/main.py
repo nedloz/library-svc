@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import engine, AsyncSessionLocal, check_db_connection, get_db
 from app.schemas import DocumentDetailSchema, TopicSchema
+from app.auth import get_gateway_user_id
 from app.services import (
     PreviewTimeout,
     PreviewTooLarge,
@@ -81,22 +82,36 @@ app.add_middleware(
 
 
 @app.get("/library/tree", response_model=List[TopicSchema])
-async def get_tree():
+async def get_tree(
+    _user_id: UUID = Depends(get_gateway_user_id),
+):
     if not library_tree_cache:
         raise HTTPException(status_code=503, detail="Библиотека еще загружается или недоступна")
     return library_tree_cache
 
 
 @app.post("/library/refresh")
-async def refresh_tree(db: AsyncSession = Depends(get_db)):
+async def refresh_tree(
+    db: AsyncSession = Depends(get_db),
+    _user_id: UUID = Depends(get_gateway_user_id),
+):
     global library_tree_cache
     library_tree_cache = await build_library_tree(db)
     return {"status": "success", "message": "Дерево успешно обновлено!"}
 
-
-@app.get("/documents/{document_id}", response_model=DocumentDetailSchema)
-@app.get("/api/documents/{document_id}", response_model=DocumentDetailSchema)
-async def get_document(document_id: UUID, db: AsyncSession = Depends(get_db)):
+@app.get(
+    "/documents/{document_id}",
+    response_model=DocumentDetailSchema,
+)
+@app.get(
+    "/api/documents/{document_id}",
+    response_model=DocumentDetailSchema,
+)
+async def get_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user_id: UUID = Depends(get_gateway_user_id),
+):
     document = await build_document_detail(db, document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Документ не найден")
@@ -150,10 +165,13 @@ async def _build_streaming_response(document_id: UUID, db: AsyncSession, disposi
         headers=headers,
     )
 
-
 @app.get("/documents/{document_id}/preview")
 @app.get("/api/documents/{document_id}/preview")
-async def preview_document(document_id: UUID, db: AsyncSession = Depends(get_db)):
+async def preview_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user_id: UUID = Depends(get_gateway_user_id),
+):
     document = await build_document_detail(db, document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Документ не найден")
@@ -209,5 +227,9 @@ async def preview_document(document_id: UUID, db: AsyncSession = Depends(get_db)
 
 @app.get("/documents/{document_id}/download")
 @app.get("/api/documents/{document_id}/download")
-async def download_document(document_id: UUID, db: AsyncSession = Depends(get_db)):
+async def download_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user_id: UUID = Depends(get_gateway_user_id),
+):
     return await _build_streaming_response(document_id, db, "attachment")
