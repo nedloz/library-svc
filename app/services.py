@@ -393,3 +393,20 @@ async def build_document_detail(db: AsyncSession, document_id: UUID) -> Optional
         "topic": topic,
         "related_documents": related_documents,
     }
+
+
+async def build_document_file_info(
+    db: AsyncSession,
+    document_id: UUID,
+) -> Optional[Dict[str, Optional[str]]]:
+    """Возвращает данные, необходимые для выдачи файла, одним запросом к БД."""
+
+    row = await fetch_document_row(db, document_id)
+    if not row:
+        return None
+
+    storage = resolve_document_storage(row)
+    return {
+        **storage,
+        "content_type": row.get("content_type"),
+    }
