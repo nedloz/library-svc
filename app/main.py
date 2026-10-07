@@ -255,10 +255,6 @@ async def refresh_tree(
 # =========================================================
 
 @app.get(
-    "/documents/{document_id}",
-    response_model=DocumentDetailSchema,
-)
-@app.get(
     "/api/documents/{document_id}",
     response_model=DocumentDetailSchema,
 )
@@ -630,9 +626,6 @@ async def _build_file_response_from_minio(
 # =========================================================
 
 @app.get(
-    "/documents/{document_id}/preview"
-)
-@app.get(
     "/api/documents/{document_id}/preview"
 )
 async def preview_document(
@@ -817,9 +810,6 @@ async def preview_document(
 # DOCUMENT DOWNLOAD
 # =========================================================
 
-@app.get(
-    "/documents/{document_id}/download"
-)
 @app.get(
     "/api/documents/{document_id}/download"
 )

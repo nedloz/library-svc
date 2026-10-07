@@ -21,11 +21,11 @@
 | :--------- | :--------------------------- | :---------------------------------------------------------------------------------------------------------- | :------------------------------------------ |
 | `GET`    | `/library/tree`            | Получение иерархического дерева тем и документов (из кэша) | `application/json`                        |
 | `POST`   | `/library/refresh`         | Принудительное обновление кэша дерева библиотеки из БД      | `application/json`                        |
-| `GET`    | `/documents/{id}`          | Полные метаданные документа и связанные материалы               | `application/json`                        |
-| `GET`    | `/documents/{id}/preview`  | Потоковый предпросмотр файла (inline) с авто-конвертацией в PDF | `application/pdf`, медиа, текст |
-| `GET`    | `/documents/{id}/download` | Скачивание оригинального файла документа (attachment)                  | `application/octet-stream`                |
+| `GET`    | `/api/documents/{id}`          | Полные метаданные документа и связанные материалы               | `application/json`                        |
+| `GET`    | `/api/documents/{id}/preview`  | Потоковый предпросмотр файла (inline) с авто-конвертацией в PDF | `application/pdf`, медиа, текст |
+| `GET`    | `/api/documents/{id}/download` | Скачивание оригинального файла документа (attachment)                  | `application/octet-stream`                |
 
-> 💡 **Примечание**: Для эндпоинтов документов поддерживаются как пути `/documents/...`, так и префиксы `/api/documents/...`.
+> 💡 **Примечание**: Эндпоинты документов доступны через API-префикс `/api/documents/...`.
 
 ---
 
@@ -100,12 +100,12 @@
 
 ---
 
-### 3.3 `GET /documents/{document_id}` — Метаданные документа
+### 3.3 `GET /api/documents/{document_id}` — Метаданные документа
 
 Возвращает расширенную информацию о конкретном документе: размер файла, режим предпросмотра, параметры размещения в MinIO, тему и список связанных документов.
 
 - **Метод**: `GET`
-- **Путь**: `/documents/{document_id}` или `/api/documents/{document_id}`
+- **Путь**: `/api/documents/{document_id}`
 - **Параметры пути**:
   - `document_id` (`UUID`, обязательный) — Идентификатор документа.
 
@@ -143,7 +143,7 @@
 
 ---
 
-### 3.4 `GET /documents/{document_id}/preview` — Предпросмотр документа
+### 3.4 `GET /api/documents/{document_id}/preview` — Предпросмотр документа
 
 Стримит контент файла для отображения прямо в браузере (заголовок `Content-Disposition: inline`).
 
@@ -157,7 +157,7 @@
 4. Студент видит документ прямо на веб-странице без необходимости скачивать и открывать Word!
 
 - **Метод**: `GET`
-- **Путь**: `/documents/{document_id}/preview` или `/api/documents/{document_id}/preview`
+- **Путь**: `/api/documents/{document_id}/preview`
 - **Коды ответов**:
   - `200 OK` — Потоковая отдача файла (StreamingResponse).
   - `404 Not Found` — Документ не найден в БД или отсутствует объект в MinIO.
@@ -166,12 +166,12 @@
 
 ---
 
-### 3.5 `GET /documents/{document_id}/download` — Скачивание файла
+### 3.5 `GET /api/documents/{document_id}/download` — Скачивание файла
 
 Стримит исходный неизмененный файл документа из MinIO в режиме скачивания (заголовок `Content-Disposition: attachment`).
 
 - **Метод**: `GET`
-- **Путь**: `/documents/{document_id}/download` или `/api/documents/{document_id}/download`
+- **Путь**: `/api/documents/{document_id}/download`
 - **Особенность**: Корректно кодирует русскоязычные имена файлов по стандарту RFC 5987 / RFC 6266 (`filename*=UTF-8''...`), поэтому при скачивании в браузере файл сохраняет оригинальное русское название.
 
 ---
