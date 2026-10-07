@@ -27,6 +27,7 @@ from app.services import (
     PreviewTimeout,
     PreviewTooLarge,
     build_document_detail,
+    build_document_file_info,
     build_library_tree,
     detect_preview_mode,
     download_minio_object,
@@ -639,7 +640,7 @@ async def preview_document(
     Предпросмотр документа.
     """
 
-    document = await build_document_detail(
+    document = await build_document_file_info(
         db,
         document_id,
     )
@@ -828,7 +829,7 @@ async def download_document(
     успешного полного получения объекта из MinIO.
     """
 
-    document = await build_document_detail(
+    document = await build_document_file_info(
         db,
         document_id,
     )
