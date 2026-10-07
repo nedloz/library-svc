@@ -141,6 +141,15 @@ library-svc
 
 ---
 
+# 🌐 CORS
+
+`library-svc` принимает запросы с любых origin, но не поддерживает credentialed-запросы
+браузера (`allow_credentials=False`). Это соответствует CORS-спецификации и безопасно
+для текущей схемы авторизации: JWT передаётся в заголовке `Authorization` через gateway,
+а не в cookie.
+
+---
+
 # 🌐 Docker Network Isolation
 
 `library-svc` не подключён к общей `app-network`.
