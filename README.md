@@ -239,13 +239,7 @@ Endpoint защищён, поэтому пользователь без JWT не
 
 ## Информация о документе
 
-### GET `/documents/{document_id}`
-
-Возвращает информацию о документе.
-
 ### GET `/api/documents/{document_id}`
-
-Аналогичный endpoint с API-префиксом, используемым gateway.
 
 Возвращаемая информация включает:
 
@@ -263,13 +257,11 @@ Endpoint защищён, поэтому пользователь без JWT не
 * тему;
 * связанные документы.
 
-Оба endpoint требуют авторизации.
+Endpoint требует авторизации и доступен только через API-префикс gateway.
 
 ---
 
 # 👁️ Предпросмотр документов
-
-### GET `/documents/{document_id}/preview`
 
 ### GET `/api/documents/{document_id}/preview`
 
@@ -330,8 +322,6 @@ Browser
 ---
 
 # 📥 Скачивание файлов
-
-### GET `/documents/{document_id}/download`
 
 ### GET `/api/documents/{document_id}/download`
 
@@ -1100,13 +1090,10 @@ Browser
 GET  /library/tree
 POST /library/refresh
 
-GET  /documents/{document_id}
 GET  /api/documents/{document_id}
 
-GET  /documents/{document_id}/preview
 GET  /api/documents/{document_id}/preview
 
-GET  /documents/{document_id}/download
 GET  /api/documents/{document_id}/download
 ```
 
