@@ -110,9 +110,21 @@ async def build_library_tree(db: AsyncSession) -> List[dict]:
 async def fetch_document_row(db: AsyncSession, document_id: UUID) -> Optional[Mapping[str, Any]]:
     query = text(
         """
-        SELECT d.*, t.name AS topic_name
+        SELECT d.*, t.name AS topic_name,
+               f.bucket, f.storage_key, f.file_name, f.size_bytes,
+               f.mime_type AS file_mime_type
         FROM documents d
         LEFT JOIN topics t ON t.id = d.topic_id
+        -- Ключ объекта в MinIO и имя файла лежат в document_files. Без этого соединения ключ
+        -- достраивался по content_type и не совпадал с реальным (например, source.txt у
+        -- html-документов, префикс documents/), и скачивание давало 502.
+        LEFT JOIN LATERAL (
+            SELECT bucket, storage_key, file_name, size_bytes, mime_type
+            FROM document_files
+            WHERE document_id = d.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) f ON TRUE
         WHERE d.id = :document_id
         """
     )
