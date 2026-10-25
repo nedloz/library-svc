@@ -413,7 +413,11 @@ def _download_minio_object_to_file(
         response = client.get_object(
             bucket_name=bucket_name,
             object_name=object_key,
-            match_etag=expected_etag,
+            # get_object() в minio-py не принимает match_etag (он есть только у copy_object и
+            # присутствовал здесь по ошибке: любое скачивание падало с TypeError и отдавало 502).
+            # Нужная гарантия — «именно тот объект, что видел stat» — задаётся условным
+            # заголовком If-Match: при подмене объекта MinIO ответит 412.
+            request_headers={"If-Match": expected_etag},
         )
 
         # -----------------------------------------------------
