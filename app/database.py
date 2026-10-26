@@ -1,9 +1,11 @@
 import os
 import logging
 from dotenv import load_dotenv
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import text
+
+from app.pg_tls import create_engine
 
 # Загружаем переменные из файла .env (важно для локального запуска)
 load_dotenv()
@@ -24,7 +26,7 @@ if not DATABASE_URL:
 if not DATABASE_URL:
     raise ValueError("❌ Переменная окружения DATABASE_URL (или набор POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB) не задана!")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 Base = declarative_base()
