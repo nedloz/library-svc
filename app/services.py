@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app import s3_tls
 from app.models import Topic, Document, DocumentRelation
 
 _OBJECT_KEY_FIELDS = (
@@ -44,8 +45,13 @@ TEXT_EXTENSIONS = {".txt", ".md", ".html", ".csv", ".json", ".xml", ".log"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 
 
-@lru_cache(maxsize=1)
 def get_minio_client() -> Optional[Minio]:
+    # Клиент кешируется до смены сертификата: суточный сертификат обновляется на месте.
+    return _minio_client(s3_tls.cert_stamp())
+
+
+@lru_cache(maxsize=2)
+def _minio_client(_cert_stamp: int) -> Optional[Minio]:
     endpoint = os.getenv("MINIO_ENDPOINT") or os.getenv("S3_ENDPOINT")
     access_key = os.getenv("MINIO_ACCESS_KEY") or os.getenv("MINIO_ROOT_USER") or os.getenv("AWS_ACCESS_KEY_ID")
     secret_key = os.getenv("MINIO_SECRET_KEY") or os.getenv("MINIO_ROOT_PASSWORD") or os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -54,7 +60,9 @@ def get_minio_client() -> Optional[Minio]:
         return None
 
     secure = str(os.getenv("MINIO_SECURE", "false")).lower() in {"1", "true", "yes", "on"}
-    return Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+    return Minio(
+        endpoint, access_key=access_key, secret_key=secret_key, secure=secure, http_client=s3_tls.urllib3_pool()
+    )
 
 
 async def build_library_tree(db: AsyncSession) -> List[dict]:

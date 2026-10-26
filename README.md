@@ -564,8 +564,8 @@ POSTGRES_PORT=5432
 
 ```env
 MINIO_ENDPOINT=minio:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ACCESS_KEY=CHANGE_ME   # случайные ключи создаёт main/scripts/gen_minio_credentials.py
+MINIO_SECRET_KEY=CHANGE_ME
 MINIO_BUCKET=documents
 MINIO_SECURE=false
 ```
