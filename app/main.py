@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
+from app import user_context
 from app.auth import get_gateway_user_id
 from app.database import (
     engine,
@@ -116,6 +117,9 @@ _download_semaphore = asyncio.Semaphore(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Без ключа проверки подписи контекст пользователя принять нельзя: сервис не стартует.
+    user_context.check_configuration()
+
     logger.info(
         "⏳ Просыпаемся, проверяем базу данных..."
     )
