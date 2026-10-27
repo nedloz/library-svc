@@ -1191,3 +1191,17 @@ nginx пробрасывает его вместо заголовков, а се
 (`USER_CONTEXT_ALLOW_LEGACY=true`) только на время перехода. Ключи: `main/scripts/gen_user_context_keys.py`,
 проверка: `main/infra/nginx/tests/user_context_e2e.sh`. Упоминания `X-User-Id` в этом файле выше
 описывают прежнюю схему.
+
+## Метрики
+
+`GET /metrics` отдаёт Prometheus (за mTLS - только пользователю `prometheus`, политика в `infra/mtls/library-svc.conf`). Кроме HTTP-метрик (`http_requests_total`, `http_request_duration_seconds`, `http_requests_inprogress`; метка `handler` - шаблон маршрута) сервис отдаёт бизнес-метрики с префиксом `pochemuchnik_`. Код: `app/metrics.py`, тесты: `tests/`. Общая картина и дашборды - `infra/observability/README.md` в корневом репозитории.
+
+| Метрика | Что считает |
+| :-- | :-- |
+| `preview_requests_total{mode}` | предпросмотры: `office_pdf`, `pdf`, `image`, `text`, `audio`, `video`, `download` |
+| `preview_cache_requests_total{outcome}` | кэш конвертации Office: `hit`, `miss`, `disabled` |
+| `preview_cache_evictions_total` | PDF, вытесненные по лимиту размера |
+| `preview_convert_duration_seconds` | время работы LibreOffice |
+| `downloads_total` | скачивания оригиналов |
+| `documents{status}` | документы по статусу публикации; обновляется раз в `DOCUMENT_COUNTS_INTERVAL_SEC` (30 с) |
+

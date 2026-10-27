@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app import s3_tls
+from app.metrics import DOCUMENTS, PREVIEW_CACHE_EVICTIONS, PREVIEW_CONVERT_DURATION
 from app.models import Topic, Document, DocumentRelation
 
 _OBJECT_KEY_FIELDS = (
@@ -371,9 +372,21 @@ def _preview_cache_evict(keep: Path) -> None:
             continue
         try:
             entry.unlink()
+            PREVIEW_CACHE_EVICTIONS.inc()
             total -= size
         except OSError:
             pass
+
+
+DOCUMENT_STATUSES = ("draft", "published", "archived")
+
+
+async def refresh_document_counts(db: AsyncSession) -> None:
+    """Обновляет gauge документов по статусу публикации; вызывается периодически."""
+    rows = (await db.execute(text("SELECT status, count(*) FROM library.documents GROUP BY status"))).all()
+    counts = {status: count for status, count in rows}
+    for status in DOCUMENT_STATUSES:
+        DOCUMENTS.labels(status=status).set(counts.get(status, 0))
 
 
 class PreviewTimeout(RuntimeError):
@@ -424,12 +437,13 @@ def convert_office_bytes_to_pdf(file_bytes: bytes, source_filename: Optional[str
         ]
         try:
             # Таймаут обязателен: без него зависший LibreOffice держал бы поток бесконечно.
-            process = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=PREVIEW_CONVERT_TIMEOUT_SEC,
-            )
+            with PREVIEW_CONVERT_DURATION.time():
+                process = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=PREVIEW_CONVERT_TIMEOUT_SEC,
+                )
         except subprocess.TimeoutExpired as exc:
             raise PreviewTimeout(
                 f"LibreOffice не уложился в {PREVIEW_CONVERT_TIMEOUT_SEC} с"

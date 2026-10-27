@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
 from app import user_context
+from app.metrics import DOWNLOADS, PREVIEW_CACHE_REQUESTS, PREVIEW_REQUESTS, setup_metrics
 from app.auth import get_gateway_user_id
 from app.database import (
     engine,
@@ -39,6 +40,7 @@ from app.services import (
     get_content_type,
     get_minio_client,
     get_preview_filename,
+    refresh_document_counts,
     is_office_document,
     convert_office_bytes_to_pdf,
 )
@@ -118,13 +120,16 @@ async def _office_preview_pdf(bucket_name: str, object_key: str, filename: str):
         )
         cached = preview_cache_get(cache_key)
         if cached is not None:
+            PREVIEW_CACHE_REQUESTS.labels(outcome="hit").inc()
             return cached, None
 
     async with _single_flight(cache_key or f"{bucket_name}/{object_key}"):
         if cache_key is not None:
             cached = preview_cache_get(cache_key)
             if cached is not None:
+                PREVIEW_CACHE_REQUESTS.labels(outcome="hit").inc()
                 return cached, None
+        PREVIEW_CACHE_REQUESTS.labels(outcome="miss" if cache_key is not None else "disabled").inc()
 
         # И скачивание, и конвертация — блокирующие операции.
         # Обе выполняются в пуле потоков.
@@ -173,6 +178,20 @@ _download_semaphore = asyncio.Semaphore(
 # LIFESPAN
 # =========================================================
 
+DOCUMENT_COUNTS_INTERVAL_SEC = int(os.getenv("DOCUMENT_COUNTS_INTERVAL_SEC", "30"))
+
+
+async def _document_counts_loop() -> None:
+    """Периодически обновляет gauge документов: запрос в БД при каждом сборе метрик не нужен."""
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                await refresh_document_counts(session)
+        except Exception:
+            logger.warning("Не удалось обновить число документов для метрик", exc_info=True)
+        await asyncio.sleep(DOCUMENT_COUNTS_INTERVAL_SEC)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Без ключа проверки подписи контекст пользователя принять нельзя: сервис не стартует.
@@ -216,11 +235,15 @@ async def lifespan(app: FastAPI):
             "пока работаем с пустым кэшем."
         )
 
+    counts_task = asyncio.create_task(_document_counts_loop())
+
     yield
 
     logger.info(
         "⏳ Засыпаем, очищаем ресурсы..."
     )
+
+    counts_task.cancel()
 
     library_tree_cache.clear()
 
@@ -239,6 +262,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="Library Microservice",
 )
+setup_metrics(app)
 
 
 app.add_middleware(
@@ -749,6 +773,10 @@ async def preview_document(
             ),
         )
 
+    PREVIEW_REQUESTS.labels(
+        mode="office_pdf" if is_office_document(content_type, filename) else preview_mode
+    ).inc()
+
     # =========================================================
     # OFFICE → PDF
     # =========================================================
@@ -928,10 +956,12 @@ async def download_document(
             ),
         )
 
-    return await _build_file_response_from_minio(
+    response = await _build_file_response_from_minio(
         bucket_name,
         object_key,
         filename,
         content_type,
         "attachment",
     )
+    DOWNLOADS.inc()
+    return response
