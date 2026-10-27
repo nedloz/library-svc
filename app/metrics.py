@@ -49,3 +49,8 @@ DOCUMENTS = Gauge(
     "Документы библиотеки по статусу публикации",
     ["status"],  # draft | published | archived
 )
+TREE_REFRESH = Counter(
+    "pochemuchnik_library_tree_refresh_total",
+    "Проверки кэша дерева библиотеки по результату",
+    ["result"],  # rebuilt | unchanged | error
+)

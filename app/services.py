@@ -124,6 +124,29 @@ async def build_library_tree(db: AsyncSession) -> List[dict]:
     return root_topics
 
 
+async def library_tree_fingerprint(db: AsyncSession) -> str:
+    """Отпечаток данных, из которых строится дерево: меняется, только если изменилось само дерево.
+
+    Считается по тем же полям, что попадают в ответ, а не по updated_at: правки через админку
+    и импорт не везде обновляют эту колонку, а у связей её нет совсем.
+    """
+    row = (
+        await db.execute(
+            text(
+                """
+                SELECT md5(
+                    coalesce((SELECT string_agg(concat_ws('|', id, parent_id, name), ',' ORDER BY id) FROM topics), '') || '#' ||
+                    coalesce((SELECT string_agg(concat_ws('|', id, topic_id, title, content_type), ',' ORDER BY id) FROM documents), '') || '#' ||
+                    coalesce((SELECT string_agg(concat_ws('|', id, from_document_id, to_document_id, relation_type, label), ',' ORDER BY id)
+                              FROM document_relations), '')
+                )
+                """
+            )
+        )
+    ).scalar()
+    return row
+
+
 async def fetch_document_row(db: AsyncSession, document_id: UUID) -> Optional[Mapping[str, Any]]:
     query = text(
         """

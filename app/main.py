@@ -25,6 +25,7 @@ from app.database import (
     get_db,
 )
 from app.schemas import DocumentDetailSchema, TopicSchema
+from app.tree_cache import TREE_REFRESH_SEC, TREE_RETRY_BASE_SEC, TreeCache, refresh_loop
 from app.services import (
     PreviewTimeout,
     preview_cache_enabled,
@@ -34,7 +35,6 @@ from app.services import (
     PreviewTooLarge,
     build_document_detail,
     build_document_file_info,
-    build_library_tree,
     detect_preview_mode,
     download_minio_object,
     get_content_type,
@@ -67,7 +67,7 @@ logger = logging.getLogger(
 # LIBRARY CACHE
 # =========================================================
 
-library_tree_cache = []
+tree_cache = TreeCache()
 
 
 # =========================================================
@@ -210,13 +210,7 @@ async def lifespan(app: FastAPI):
             )
 
             async with AsyncSessionLocal() as session:
-                global library_tree_cache
-
-                library_tree_cache = (
-                    await build_library_tree(
-                        session
-                    )
-                )
+                await tree_cache.refresh(session, force=True)
 
             logger.info(
                 "✅ Дерево библиотеки успешно "
@@ -236,6 +230,10 @@ async def lifespan(app: FastAPI):
         )
 
     counts_task = asyncio.create_task(_document_counts_loop())
+    # Работает и когда стартовая сборка не удалась: кэш поднимется сам, как только база ответит.
+    tree_task = asyncio.create_task(
+        refresh_loop(tree_cache, AsyncSessionLocal, first_delay=TREE_REFRESH_SEC if tree_cache.loaded else TREE_RETRY_BASE_SEC)
+    )
 
     yield
 
@@ -244,8 +242,9 @@ async def lifespan(app: FastAPI):
     )
 
     counts_task.cancel()
+    tree_task.cancel()
 
-    library_tree_cache.clear()
+    tree_cache.clear()
 
     await engine.dispose()
 
@@ -293,7 +292,7 @@ async def get_tree(
     Требуется авторизация через gateway.
     """
 
-    if not library_tree_cache:
+    if not tree_cache.loaded:
         raise HTTPException(
             status_code=503,
             detail=(
@@ -302,7 +301,7 @@ async def get_tree(
             ),
         )
 
-    return library_tree_cache
+    return tree_cache.tree
 
 
 # =========================================================
@@ -323,11 +322,7 @@ async def refresh_tree(
     что и остальные library API.
     """
 
-    global library_tree_cache
-
-    library_tree_cache = (
-        await build_library_tree(db)
-    )
+    await tree_cache.refresh(db, force=True)
 
     return {
         "status": "success",
