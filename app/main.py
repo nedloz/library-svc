@@ -26,6 +26,10 @@ from app.database import (
 from app.schemas import DocumentDetailSchema, TopicSchema
 from app.services import (
     PreviewTimeout,
+    preview_cache_enabled,
+    preview_cache_get,
+    preview_cache_key,
+    preview_cache_put,
     PreviewTooLarge,
     build_document_detail,
     build_document_file_info,
@@ -34,6 +38,7 @@ from app.services import (
     download_minio_object,
     get_content_type,
     get_minio_client,
+    get_preview_filename,
     is_office_document,
     convert_office_bytes_to_pdf,
 )
@@ -85,6 +90,59 @@ PREVIEW_MAX_CONCURRENCY = max(
 _preview_semaphore = asyncio.Semaphore(
     PREVIEW_MAX_CONCURRENCY
 )
+
+# Одновременные запросы предпросмотра одного и того же документа конвертируют его один раз:
+# остальные ждут и берут готовый PDF из кэша, а не занимают слоты семафора такой же работой.
+_preview_inflight: dict[str, list] = {}
+
+
+@asynccontextmanager
+async def _single_flight(key: str):
+    entry = _preview_inflight.setdefault(key, [asyncio.Lock(), 0])
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            _preview_inflight.pop(key, None)
+
+
+async def _office_preview_pdf(bucket_name: str, object_key: str, filename: str):
+    """PDF-предпросмотр Office-документа: (путь к файлу в кэше, None) или (None, байты)."""
+    cache_key = None
+    if preview_cache_enabled():
+        cache_key = await anyio.to_thread.run_sync(
+            preview_cache_key, bucket_name, object_key
+        )
+        cached = preview_cache_get(cache_key)
+        if cached is not None:
+            return cached, None
+
+    async with _single_flight(cache_key or f"{bucket_name}/{object_key}"):
+        if cache_key is not None:
+            cached = preview_cache_get(cache_key)
+            if cached is not None:
+                return cached, None
+
+        # И скачивание, и конвертация — блокирующие операции.
+        # Обе выполняются в пуле потоков.
+        async with _preview_semaphore:
+            source_bytes = await anyio.to_thread.run_sync(
+                download_minio_object, bucket_name, object_key
+            )
+            pdf_bytes, _pdf_filename = await anyio.to_thread.run_sync(
+                convert_office_bytes_to_pdf, source_bytes, filename
+            )
+
+        if cache_key is not None:
+            cached = await anyio.to_thread.run_sync(
+                preview_cache_put, cache_key, pdf_bytes
+            )
+            if cached is not None:
+                return cached, None
+        return None, pdf_bytes
 
 
 # =========================================================
@@ -699,26 +757,13 @@ async def preview_document(
         content_type,
         filename,
     ):
-        # И скачивание, и конвертация — блокирующие операции.
-        # Обе выполняются в пуле потоков.
+        pdf_filename = get_preview_filename(filename)
         try:
-            async with _preview_semaphore:
-
-                source_bytes = (
-                    await anyio.to_thread.run_sync(
-                        download_minio_object,
-                        bucket_name,
-                        object_key,
-                    )
-                )
-
-                pdf_bytes, pdf_filename = (
-                    await anyio.to_thread.run_sync(
-                        convert_office_bytes_to_pdf,
-                        source_bytes,
-                        filename,
-                    )
-                )
+            pdf_path, pdf_bytes = await _office_preview_pdf(
+                bucket_name,
+                object_key,
+                filename,
+            )
 
         except PreviewTooLarge as exc:
             logger.warning(
@@ -777,6 +822,13 @@ async def preview_document(
                 )
             )
         }
+
+        if pdf_path is not None:
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                headers=headers,
+            )
 
         return StreamingResponse(
             iter([pdf_bytes]),

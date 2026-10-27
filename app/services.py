@@ -1,3 +1,4 @@
+import hashlib
 import mimetypes
 import os
 import shutil
@@ -39,6 +40,13 @@ _SIZE_FIELDS = ("size_bytes", "file_size", "size", "content_length")
 # размеру исходника: файл целиком читается в память перед конвертацией.
 PREVIEW_CONVERT_TIMEOUT_SEC = int(os.getenv("PREVIEW_CONVERT_TIMEOUT_SEC", "120"))
 PREVIEW_MAX_SOURCE_BYTES = int(os.getenv("PREVIEW_MAX_SOURCE_BYTES", str(50 * 1024 * 1024)))
+
+# Кэш результатов конвертации. Без него каждый предпросмотр одного и того же .docx заново
+# запускал LibreOffice (секунды CPU и память под семафором). Файлы лежат на диске контейнера:
+# после его пересоздания кэш пустеет и наполняется заново, а общего хранилища для этого не
+# заводим. PREVIEW_CACHE_MAX_BYTES=0 выключает кэш.
+PREVIEW_CACHE_DIR = Path(os.getenv("PREVIEW_CACHE_DIR", "/tmp/library-preview-cache"))
+PREVIEW_CACHE_MAX_BYTES = int(os.getenv("PREVIEW_CACHE_MAX_BYTES", str(512 * 1024 * 1024)))
 
 OFFICE_EXTENSIONS = {".doc", ".docx", ".rtf", ".odt"}
 TEXT_EXTENSIONS = {".txt", ".md", ".html", ".csv", ".json", ".xml", ".log"}
@@ -295,6 +303,77 @@ def download_minio_object(bucket_name: str, object_key: str) -> bytes:
             response.close()
             response.release_conn()
 
+
+
+def preview_cache_enabled() -> bool:
+    return PREVIEW_CACHE_MAX_BYTES > 0
+
+
+def preview_cache_key(bucket_name: str, object_key: str) -> str:
+    """Ключ кэша привязан к содержимому объекта: ETag меняется при перезаписи файла.
+
+    Поэтому заменённый в MinIO документ не отдаёт устаревший PDF, а явной инвалидации не
+    нужно. Блокирующая функция (запрос к MinIO), вызывать через пул потоков.
+    """
+    client = get_minio_client()
+    if not client:
+        raise RuntimeError("MinIO не настроен")
+    stat = client.stat_object(bucket_name, object_key)
+    identity = f"{bucket_name}\0{object_key}\0{stat.etag}\0{stat.size}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def preview_cache_get(cache_key: str) -> Optional[Path]:
+    path = PREVIEW_CACHE_DIR / f"{cache_key}.pdf"
+    try:
+        os.utime(path)  # время последнего использования: по нему вытесняются старые
+    except OSError:
+        return None
+    return path
+
+
+def preview_cache_put(cache_key: str, pdf_bytes: bytes) -> Optional[Path]:
+    """Кладёт PDF в кэш; сбой записи не должен ломать предпросмотр, поэтому вернёт None."""
+    if len(pdf_bytes) > PREVIEW_CACHE_MAX_BYTES:
+        return None
+    try:
+        PREVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = PREVIEW_CACHE_DIR / f"{cache_key}.pdf"
+        # Запись во временный файл и rename: читатель никогда не увидит недописанный PDF.
+        fd, tmp_name = tempfile.mkstemp(prefix=".tmp-", suffix=".pdf", dir=PREVIEW_CACHE_DIR)
+        try:
+            with os.fdopen(fd, "wb") as tmp:
+                tmp.write(pdf_bytes)
+            os.replace(tmp_name, path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
+        _preview_cache_evict(keep=path)
+        return path
+    except OSError:
+        return None
+
+
+def _preview_cache_evict(keep: Path) -> None:
+    """Удаляет давно не используемые PDF, пока кэш не уложится в лимит."""
+    entries = []
+    for entry in PREVIEW_CACHE_DIR.glob("*.pdf"):
+        try:
+            stat = entry.stat()
+        except OSError:
+            continue
+        entries.append((stat.st_mtime, stat.st_size, entry))
+    total = sum(size for _, size, _ in entries)
+    for _, size, entry in sorted(entries, key=lambda item: item[0]):
+        if total <= PREVIEW_CACHE_MAX_BYTES:
+            break
+        if entry == keep:
+            continue
+        try:
+            entry.unlink()
+            total -= size
+        except OSError:
+            pass
 
 
 class PreviewTimeout(RuntimeError):
