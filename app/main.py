@@ -18,6 +18,8 @@ from starlette.background import BackgroundTask
 from app import user_context
 from app.metrics import DOWNLOADS, PREVIEW_CACHE_REQUESTS, PREVIEW_REQUESTS, setup_metrics
 from app.auth import get_gateway_user_id
+from app.grades import router as grades_router
+from app.planner import router as planner_router
 from app.database import (
     engine,
     AsyncSessionLocal,
@@ -262,6 +264,8 @@ app = FastAPI(
     title="Library Microservice",
 )
 setup_metrics(app)
+app.include_router(planner_router)
+app.include_router(grades_router)
 
 
 app.add_middleware(

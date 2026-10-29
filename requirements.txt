@@ -6,4 +6,4 @@ pydantic>=2.0.0
 python-dotenv>=1.0.0
 minio>=7.2.12
 prometheus-client==0.21.1
-prometheus-fastapi-instrumentator==7.0.0
+prometheus-fastapi-instrumentator==8.1.0
