@@ -1,6 +1,5 @@
 import os
 import logging
-from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import text
@@ -8,7 +7,6 @@ from sqlalchemy import text
 from app.pg_tls import create_engine
 
 # Загружаем переменные из файла .env (важно для локального запуска)
-load_dotenv()
 
 logger = logging.getLogger("library_service")
 

@@ -9,3 +9,4 @@ venv/
 .git/
 .vscode/
 .idea/
+.env.*
